@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <h1>{{ app_name }}</h1>
+        <p>Live server and system health overview</p>
+      </header>
+
+      <section class="cards" id="overview-cards">
+        <article class="card">
+          <span>Total</span>
+          <strong id="total-servers">0</strong>
+        </article>
+        <article class="card success">
+          <span>Healthy</span>
+          <strong id="healthy-servers">0</strong>
+        </article>
+        <article class="card warning">
+          <span>Stale</span>
+          <strong id="stale-servers">0</strong>
+        </article>
+        <article class="card danger">
+          <span>Critical</span>
+          <strong id="critical-servers">0</strong>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Servers</h2>
+          <button id="refresh-btn" type="button">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Host</th>
+                <th>Env</th>
+                <th>Status</th>
+                <th>CPU</th>
+                <th>Memory</th>
+                <th>Disk</th>
+                <th>Nginx Active</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody id="servers-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/dashboard.js"></script>
+  </body>
+</html>
