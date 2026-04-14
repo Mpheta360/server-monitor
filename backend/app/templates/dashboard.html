@@ -9,8 +9,15 @@
   <body>
     <main class="page">
       <header class="hero">
-        <h1>{{ app_name }}</h1>
-        <p>Live server and system health overview</p>
+        <div class="hero-top">
+          <div>
+            <h1>{{ app_name }}</h1>
+            <p>Live server and system health overview</p>
+          </div>
+          <form method="post" action="/sign-out">
+            <button type="submit" class="btn-secondary">Sign Out</button>
+          </form>
+        </div>
       </header>
 
       <section class="cards" id="overview-cards">

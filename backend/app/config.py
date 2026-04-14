@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     supabase_db_url: str = ""
     supabase_url: str = ""
     supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
     supabase_auth_timeout_seconds: int = 8
     ingest_api_token: str = ""
     require_admin_auth: bool = True

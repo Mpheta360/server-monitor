@@ -51,6 +51,10 @@ function renderServers(servers) {
 
 async function fetchJSON(url) {
   const res = await fetch(url);
+  if (res.status === 401) {
+    window.location.assign('/sign-in');
+    throw new Error('Your session has expired. Redirecting to sign in...');
+  }
   if (!res.ok) {
     throw new Error(`Request failed (${res.status}) for ${url}`);
   }

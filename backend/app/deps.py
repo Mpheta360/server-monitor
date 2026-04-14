@@ -1,12 +1,23 @@
 import json
-from base64 import b64decode
 from dataclasses import dataclass
-from hmac import compare_digest
 from urllib import error, request
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from .config import settings
+
+DASHBOARD_SESSION_COOKIE_NAME = "monitor_supabase_session"
+
+
+def _supabase_auth_config() -> tuple[str, str]:
+    supabase_url = settings.supabase_url.strip().rstrip("/")
+    anon_key = settings.supabase_anon_key.strip()
+    if not supabase_url or not anon_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase authentication is not configured",
+        )
+    return supabase_url, anon_key
 
 
 def verify_ingest_token(authorization: str | None = Header(default=None)) -> None:
@@ -23,52 +34,6 @@ def verify_ingest_token(authorization: str | None = Header(default=None)) -> Non
     scheme, _, provided = authorization.partition(" ")
     if scheme.lower() != "bearer" or provided != expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid ingest token")
-
-
-def verify_admin_basic_auth(authorization: str | None = Header(default=None)) -> None:
-    if not settings.require_admin_auth:
-        return
-
-    username = settings.admin_username.strip()
-    password = settings.admin_password
-    if not username or not password:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Admin authentication is not configured",
-        )
-
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
-            headers={"WWW-Authenticate": "Basic realm=monitor-admin"},
-        )
-
-    scheme, _, encoded = authorization.partition(" ")
-    if scheme.lower() != "basic" or not encoded:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header format",
-            headers={"WWW-Authenticate": "Basic realm=monitor-admin"},
-        )
-
-    try:
-        decoded = b64decode(encoded).decode("utf-8")
-        provided_user, provided_pass = decoded.split(":", 1)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid basic auth credentials",
-            headers={"WWW-Authenticate": "Basic realm=monitor-admin"},
-        ) from exc
-
-    is_valid = compare_digest(provided_user, username) and compare_digest(provided_pass, password)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin username or password",
-            headers={"WWW-Authenticate": "Basic realm=monitor-admin"},
-        )
 
 
 @dataclass
@@ -88,14 +53,19 @@ def _extract_bearer_token(authorization: str | None) -> str:
     return token.strip()
 
 
+def _extract_dashboard_token(request_obj: Request, authorization: str | None) -> str:
+    if authorization and authorization.strip():
+        return _extract_bearer_token(authorization)
+
+    cookie_token = request_obj.cookies.get(DASHBOARD_SESSION_COOKIE_NAME, "").strip()
+    if cookie_token:
+        return cookie_token
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+
+
 def _verify_with_supabase(token: str) -> AuthenticatedUser:
-    supabase_url = settings.supabase_url.strip().rstrip("/")
-    anon_key = settings.supabase_anon_key.strip()
-    if not supabase_url or not anon_key:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase authentication is not configured",
-        )
+    supabase_url, anon_key = _supabase_auth_config()
 
     url = f"{supabase_url}/auth/v1/user"
     req = request.Request(
@@ -143,6 +113,79 @@ def _verify_with_supabase(token: str) -> AuthenticatedUser:
         email=payload.get("email"),
         role=app_metadata.get("role") or payload.get("role"),
     )
+
+
+def authenticate_supabase_password(email: str, password: str) -> tuple[str, int]:
+    if not email.strip() or not password:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email and password are required")
+
+    supabase_url, anon_key = _supabase_auth_config()
+    body = json.dumps({"email": email.strip(), "password": password}).encode("utf-8")
+    url = f"{supabase_url}/auth/v1/token?grant_type=password"
+    req = request.Request(
+        url,
+        method="POST",
+        data=body,
+        headers={
+            "apikey": anon_key,
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with request.urlopen(req, timeout=settings.supabase_auth_timeout_seconds) as resp:
+            raw_body = resp.read().decode("utf-8")
+            if resp.status != 200:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    except error.HTTPError as exc:
+        if exc.code in (400, 401, 403, 422):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase authentication service unavailable",
+        ) from exc
+    except (error.URLError, TimeoutError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not reach Supabase authentication service",
+        ) from exc
+
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Invalid response from Supabase") from exc
+
+    access_token = str(payload.get("access_token", "")).strip()
+    expires_in = int(payload.get("expires_in") or 3600)
+    if not access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    return access_token, max(expires_in, 1)
+
+
+def has_valid_dashboard_session(request_obj: Request) -> bool:
+    token = request_obj.cookies.get(DASHBOARD_SESSION_COOKIE_NAME, "").strip()
+    if not token:
+        return False
+    try:
+        _verify_with_supabase(token)
+        return True
+    except HTTPException:
+        return False
+
+
+def require_dashboard_user(request_obj: Request, authorization: str | None = Header(default=None)) -> AuthenticatedUser:
+    if not settings.require_admin_auth:
+        return AuthenticatedUser(id="local-dev", email=None, role="admin")
+    token = _extract_dashboard_token(request_obj, authorization)
+    return _verify_with_supabase(token)
+
+
+def verify_admin_basic_auth(request_obj: Request, authorization: str | None = Header(default=None)) -> None:
+    # Kept for backward compatibility with existing routers.
+    require_dashboard_user(request_obj, authorization)
 
 
 def require_supabase_user(authorization: str | None = Header(default=None)) -> AuthenticatedUser:

@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException
 
 from .. import crud
 from ..config import settings
@@ -13,19 +12,26 @@ alerts = AlertDispatcher()
 
 
 @router.post("/ingest", response_model=IngestResponse, dependencies=[Depends(verify_ingest_token)])
-def ingest_metrics(payload: AgentPayload, db: Session = Depends(get_db)) -> IngestResponse:
+def ingest_metrics(payload: AgentPayload, db = Depends(get_db)) -> IngestResponse:
+    if db is None or db.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
+    
     server, metric = crud.upsert_server_with_metric(db, payload, commit=False)
+    
     metric_checks = [
-        ("cpu", metric.cpu_percent, settings.alert_cpu_threshold),
-        ("memory", metric.memory_percent, settings.alert_memory_threshold),
-        ("disk", metric.disk_percent, settings.alert_disk_threshold),
+        ("cpu", metric.get('cpu_percent'), settings.alert_cpu_threshold),
+        ("memory", metric.get('memory_percent'), settings.alert_memory_threshold),
+        ("disk", metric.get('disk_percent'), settings.alert_disk_threshold),
     ]
 
     for metric_name, metric_value, threshold in metric_checks:
-        if metric_value >= threshold:
-            alert_key = f"{server.hostname}:{metric_name}"
+        if metric_value is not None and metric_value >= threshold:
+            alert_key = f"{server.get('hostname')}:{metric_name}"
             message = (
-                f"{server.hostname}: {metric_name} usage is {metric_value:.1f}% "
+                f"{server.get('hostname')}: {metric_name} usage is {metric_value:.1f}% "
                 f"(threshold {threshold:.1f}%)"
             )
             result = alerts.dispatch(
@@ -39,7 +45,7 @@ def ingest_metrics(payload: AgentPayload, db: Session = Depends(get_db)) -> Inge
                 severity="critical",
                 message=message,
                 source="ingest-metric-threshold",
-                server_id=server.id,
+                server_id=server.get('id'),
                 delivered=result.delivered,
                 suppressed=result.suppressed,
                 commit=False,
@@ -49,8 +55,8 @@ def ingest_metrics(payload: AgentPayload, db: Session = Depends(get_db)) -> Inge
     for service in payload.services:
         current_status = service.status.strip().lower()
         if current_status in bad_service_statuses:
-            alert_key = f"{server.hostname}:service:{service.name}"
-            message = f"{server.hostname}: service {service.name} is {current_status}"
+            alert_key = f"{server.get('hostname')}:service:{service.name}"
+            message = f"{server.get('hostname')}: service {service.name} is {current_status}"
             result = alerts.dispatch(
                 key=alert_key,
                 severity="critical",
@@ -62,13 +68,11 @@ def ingest_metrics(payload: AgentPayload, db: Session = Depends(get_db)) -> Inge
                 severity="critical",
                 message=message,
                 source="ingest-service-status",
-                server_id=server.id,
+                server_id=server.get('id'),
                 delivered=result.delivered,
                 suppressed=result.suppressed,
                 commit=False,
             )
 
-    # Persist server metric + optional alert events in one transaction for lower latency.
-    db.commit()
+    return IngestResponse(server_id=server.get('id'), metric_id=metric.get('id'), status="ok")
 
-    return IngestResponse(server_id=server.id, metric_id=metric.id, status="ok")

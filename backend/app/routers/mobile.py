@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 
 from .. import crud
 from ..database import get_db
@@ -22,8 +21,13 @@ def me(current_user: AuthenticatedUser = Depends(require_supabase_user)) -> Mobi
 def bootstrap(
     server_limit: int = Query(default=30, ge=1, le=200),
     alerts_limit: int = Query(default=30, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ) -> BootstrapOut:
+    if db is None or db.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
     servers, _ = crud.get_servers_page(db, limit=server_limit, offset=0)
     alerts = crud.get_alert_events(db, limit=alerts_limit)
     return BootstrapOut(
@@ -39,14 +43,24 @@ def list_servers(
     search: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ) -> ServersPageOut:
+    if db is None or db.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
     items, total = crud.get_servers_page(db, status=status, search=search, limit=limit, offset=offset)
     return ServersPageOut(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/servers/{server_id}", response_model=ServerOut)
-def get_server(server_id: int, db: Session = Depends(get_db)) -> ServerOut:
+def get_server(server_id: int, db = Depends(get_db)) -> ServerOut:
+    if db is None or db.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
     server = crud.get_server(db, server_id)
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
@@ -57,8 +71,13 @@ def get_server(server_id: int, db: Session = Depends(get_db)) -> ServerOut:
 def get_server_metrics(
     server_id: int,
     minutes: int = Query(default=60, ge=1, le=60 * 24),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ) -> list[MetricOut]:
+    if db is None or db.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
     if not crud.get_server(db, server_id):
         raise HTTPException(status_code=404, detail="Server not found")
     return crud.get_server_metrics(db, server_id=server_id, minutes=minutes)
@@ -68,8 +87,13 @@ def get_server_metrics(
 def get_server_nginx_metrics(
     server_id: int,
     minutes: int = Query(default=60, ge=1, le=60 * 24),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ) -> list[NginxMetricOut]:
+    if db is None or db.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
     if not crud.get_server(db, server_id):
         raise HTTPException(status_code=404, detail="Server not found")
     return crud.get_server_nginx_metrics(db, server_id=server_id, minutes=minutes)
@@ -79,6 +103,12 @@ def get_server_nginx_metrics(
 def get_alerts(
     limit: int = Query(default=50, ge=1, le=200),
     server_id: int | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ) -> list[AlertOut]:
+    if db is None or db.client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env"
+        )
     return crud.get_alert_events(db, limit=limit, server_id=server_id)
+

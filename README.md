@@ -197,7 +197,7 @@ This repo now includes a production stack:
 5. Set secure admin credentials and tight CORS/hosts:
    - `ADMIN_USERNAME`, `ADMIN_PASSWORD`
    - `CORS_ALLOW_ORIGINS=https://monitor.yourdomain.com`
-   - `ALLOWED_HOSTS=monitor.yourdomain.com`
+   - `ALLOWED_HOSTS=monitor.yourdomain.com,localhost,127.0.0.1`
    - `INGEST_API_TOKEN` must be set
 
 ### Deploy

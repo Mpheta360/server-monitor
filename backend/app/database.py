@@ -1,52 +1,46 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-from urllib.parse import quote, unquote
+import logging
+from supabase import create_client, Client
 
 from .config import settings
 
+logger = logging.getLogger(__name__)
 
-def _normalize_database_url(url: str) -> str:
-    """Normalize DB URL by safely URL-encoding password special characters."""
-    if not url:
-        return url
+# Dummy Base class for model compatibility
+# Since we're using Supabase REST API, we don't need SQLAlchemy ORM
+class Base:
+    """Dummy base class for model definitions. Not used with Supabase REST API."""
+    pass
 
-    prefixes = ("postgresql://", "postgresql+psycopg2://")
-    if not url.startswith(prefixes):
-        return url
+# Initialize Supabase clients
+supabase_client: Client = None
+supabase_admin: Client = None
 
-    scheme, rest = url.split("://", 1)
-    if "/" in rest:
-        netloc, suffix = rest.split("/", 1)
-        suffix = "/" + suffix
-    else:
-        netloc, suffix = rest, ""
+if settings.supabase_url and settings.supabase_anon_key:
+    supabase_client = create_client(settings.supabase_url, settings.supabase_anon_key)
+    logger.info(f"✓ Supabase client initialized with anon key")
+else:
+    logger.error("SUPABASE_URL and SUPABASE_ANON_KEY are required")
 
-    if "@" not in netloc or ":" not in netloc.split("@", 1)[0]:
-        return url
+if settings.supabase_url and settings.supabase_service_role_key:
+    supabase_admin = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    logger.info("✓ Supabase admin client initialized with service role key")
+else:
+    logger.warning("SUPABASE_SERVICE_ROLE_KEY not configured - some operations may fail or have RLS restrictions")
 
-    userinfo, hostport = netloc.rsplit("@", 1)
-    username, raw_password = userinfo.split(":", 1)
-    normalized_password = quote(unquote(raw_password), safe="")
-    return f"{scheme}://{username}:{normalized_password}@{hostport}{suffix}"
-
-
-database_url = settings.supabase_db_url.strip() or settings.database_url.strip()
-database_url = _normalize_database_url(database_url)
-if not database_url:
-    raise RuntimeError("Missing DB config. Set SUPABASE_DB_URL (recommended) or DATABASE_URL.")
-
-connect_args = {}
-if database_url.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
-
-engine = create_engine(database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
-Base = declarative_base()
-
+# For compatibility with existing code that expects a database session
+class SupabaseSession:
+    """Wrapper around Supabase client to provide session-like interface"""
+    def __init__(self, client: Client):
+        self.client = client
+    
+    def close(self):
+        pass
 
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    """Get Supabase client session for use in dependencies"""
+    if supabase_admin:
+        yield SupabaseSession(supabase_admin)
+    elif supabase_client:
+        yield SupabaseSession(supabase_client)
+    else:
+        yield None
