@@ -17,6 +17,7 @@ MONITOR_ENVIRONMENT = os.getenv("MONITOR_ENVIRONMENT", "production")
 MONITOR_REGION = os.getenv("MONITOR_REGION", "")
 MONITOR_AGENT_KEY = os.getenv("MONITOR_AGENT_KEY", "")
 MONITOR_DISPLAY_NAME = os.getenv("MONITOR_DISPLAY_NAME", "")
+MONITOR_USER_ID = os.getenv("MONITOR_USER_ID", "").strip()
 MONITOR_TAGS = [tag.strip() for tag in os.getenv("MONITOR_TAGS", "").split(",") if tag.strip()]
 MONITOR_INTERVAL_SECONDS = int(os.getenv("MONITOR_INTERVAL_SECONDS", "15"))
 MONITOR_TIMEOUT_SECONDS = int(os.getenv("MONITOR_TIMEOUT_SECONDS", "20"))
@@ -217,6 +218,7 @@ def collect_payload() -> dict:
     agent_key = MONITOR_AGENT_KEY.strip() or f"{hostname}:{MONITOR_ENVIRONMENT}"
 
     payload = {
+        "user_id": MONITOR_USER_ID or None,
         "server": {
             "agent_key": agent_key,
             "hostname": hostname,
