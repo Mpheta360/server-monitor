@@ -30,7 +30,7 @@ def overview(
             status_code=503,
             detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env, then run SQL from app/schema.sql in Supabase"
         )
-    return crud.get_overview(db, user_id=current_user.id)
+    return crud.get_overview(db)
 
 
 @router.get("/servers", response_model=list[ServerOut])
@@ -43,7 +43,7 @@ def list_servers(
             status_code=503,
             detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env, then run SQL from app/schema.sql in Supabase"
         )
-    return crud.get_servers(db, user_id=current_user.id)
+    return crud.get_servers(db)
 
 
 @router.get("/alerts", response_model=list[AlertOut])
@@ -57,7 +57,7 @@ def list_alerts(
             status_code=503,
             detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env, then run SQL from app/schema.sql in Supabase"
         )
-    return crud.get_alert_events(db, limit=limit, user_id=current_user.id)
+    return crud.get_alert_events(db, limit=limit)
 
 
 @router.get("/dashboard/bootstrap", response_model=BootstrapOut)
@@ -72,10 +72,10 @@ def dashboard_bootstrap(
             status_code=503,
             detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env, then run SQL from app/schema.sql in Supabase"
         )
-    servers, _ = crud.get_servers_page(db, limit=server_limit, offset=0, user_id=current_user.id)
-    alerts = crud.get_alert_events(db, limit=alerts_limit, user_id=current_user.id)
+    servers, _ = crud.get_servers_page(db, limit=server_limit, offset=0)
+    alerts = crud.get_alert_events(db, limit=alerts_limit)
     return BootstrapOut(
-        overview=crud.get_overview(db, user_id=current_user.id),
+        overview=crud.get_overview(db),
         servers=servers,
         alerts=alerts,
     )
@@ -101,7 +101,6 @@ def dashboard_analytics(
         bucket_minutes=bucket_minutes,
         server_limit=server_limit,
         alerts_limit=alerts_limit,
-        user_id=current_user.id,
     )
 
 
@@ -117,10 +116,10 @@ def server_metrics(
             status_code=503,
             detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env, then run SQL from app/schema.sql in Supabase"
         )
-    metrics = crud.get_server_metrics(db, server_id=server_id, minutes=minutes, user_id=current_user.id)
+    metrics = crud.get_server_metrics(db, server_id=server_id, minutes=minutes)
     if not metrics:
         # Return empty list if no metrics exist yet; only 404 on impossible IDs.
-        known_server_ids = {server.id for server in crud.get_servers(db, user_id=current_user.id)}
+        known_server_ids = {server.id for server in crud.get_servers(db)}
         if server_id not in known_server_ids:
             raise HTTPException(status_code=404, detail="Server not found")
     return metrics
@@ -138,9 +137,9 @@ def server_nginx_metrics(
             status_code=503,
             detail="Database not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env, then run SQL from app/schema.sql in Supabase"
         )
-    metrics = crud.get_server_nginx_metrics(db, server_id=server_id, minutes=minutes, user_id=current_user.id)
+    metrics = crud.get_server_nginx_metrics(db, server_id=server_id, minutes=minutes)
     if not metrics:
-        known_server_ids = {server.id for server in crud.get_servers(db, user_id=current_user.id)}
+        known_server_ids = {server.id for server in crud.get_servers(db)}
         if server_id not in known_server_ids:
             raise HTTPException(status_code=404, detail="Server not found")
     return metrics
@@ -161,7 +160,7 @@ def nginx_apps(
         )
     return crud.get_nginx_app_checks(
         db,
-        user_id=current_user.id,
+        user_id=None,
         limit=limit,
         server_id=server_id,
         healthy=healthy,
@@ -183,7 +182,7 @@ def logs(
         )
     return crud.get_log_events(
         db,
-        user_id=current_user.id,
+        user_id=None,
         limit=limit,
         server_id=server_id,
         level=level,
@@ -203,7 +202,7 @@ def report_issue(
         )
     issue = crud.create_issue_report(
         db,
-        user_id=current_user.id,
+        user_id=getattr(current_user, "id", None),
         payload=payload,
     )
     if not issue:
@@ -225,7 +224,7 @@ def list_issues(
         )
     return crud.get_issue_reports(
         db,
-        user_id=current_user.id,
+        user_id=None,
         limit=limit,
         status=status,
     )
