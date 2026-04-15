@@ -2,6 +2,8 @@ from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any
 
+from postgrest.exceptions import APIError
+
 from .config import settings
 from .schemas import (
     AgentPayload,
@@ -63,40 +65,46 @@ def upsert_server_with_metric(db, payload: AgentPayload, commit: bool = True) ->
     tags = ",".join(payload.server.tags)
     user_id = (payload.user_id or settings.monitor_default_user_id).strip() or None
 
+    agent_key = _agent_key_from_payload(payload)
+
+    server = None
+
+    if user_id:
+        try:
+            servers_query = client.table("servers").select().eq("agent_key", agent_key).eq("user_id", user_id).limit(1)
+            servers = servers_query.execute()
+            server = servers.data[0] if servers.data else None
+        except APIError:
+            server = None
+
+    if not server:
+        try:
+            fallback_query = client.table("servers").select().eq("agent_key", agent_key).limit(1)
+            fallback_result = fallback_query.execute()
+            if fallback_result.data:
+                server = fallback_result.data[0]
+                user_id = str(server.get("user_id") or "").strip() or user_id
+        except APIError:
+            server = None
+
+    if not user_id and server:
+        user_id = str(server.get("user_id") or "").strip() or None
+
     if not user_id:
         raise RuntimeError("Agent payload is missing user_id and MONITOR_DEFAULT_USER_ID is not configured")
 
-    agent_key = _agent_key_from_payload(payload)
-
-    servers_query = client.table("servers").select().eq("agent_key", agent_key).eq("user_id", user_id).limit(1)
-    servers = servers_query.execute()
-    server = servers.data[0] if servers.data else None
-
-    if not server:
-        server_data = {
-            "user_id": user_id,
-            "agent_key": agent_key,
-            "hostname": payload.server.hostname,
-            "display_name": payload.server.display_name,
-            "ip_address": payload.server.ip_address,
-            "environment": payload.server.environment,
-            "region": payload.server.region,
-            "tags": tags,
-        }
-        result = client.table("servers").insert(server_data).execute()
-        server = result.data[0] if result.data else server_data
-    else:
-        server_update = {
-            "hostname": payload.server.hostname,
-            "display_name": payload.server.display_name,
-            "ip_address": payload.server.ip_address,
-            "environment": payload.server.environment,
-            "region": payload.server.region,
-            "tags": tags,
-        }
-        result = client.table("servers").update(server_update).eq("id", server["id"]).execute()
-        if result.data:
-            server = result.data[0]
+    server_data = {
+        "user_id": user_id,
+        "agent_key": agent_key,
+        "hostname": payload.server.hostname,
+        "display_name": payload.server.display_name,
+        "ip_address": payload.server.ip_address,
+        "environment": payload.server.environment,
+        "region": payload.server.region,
+        "tags": tags,
+    }
+    result = client.table("servers").upsert(server_data, on_conflict="user_id,agent_key").execute()
+    server = result.data[0] if result.data else server_data
 
     metric_data = {
         "server_id": server["id"],

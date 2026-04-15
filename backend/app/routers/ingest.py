@@ -20,7 +20,7 @@ def ingest_metrics(payload: AgentPayload, db = Depends(get_db)) -> IngestRespons
         )
     
     server, metric = crud.upsert_server_with_metric(db, payload, commit=False)
-    user_id = (payload.user_id or settings.monitor_default_user_id).strip() or None
+    user_id = str(payload.user_id or settings.monitor_default_user_id or server.get("user_id") or "").strip() or None
     
     metric_checks = [
         ("cpu", metric.get('cpu_percent'), settings.alert_cpu_threshold),
