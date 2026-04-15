@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ app_name }} - {{ current_page|title }}</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body data-page="{{ current_page }}">
+    <main class="dash-layout">
+      <aside class="side-nav">
+        <div class="brand">
+          <div class="brand-mark">
+            <span class="brand-rail"></span>
+            <span class="brand-rail"></span>
+          </div>
+          <div class="brand-title">SYSMON <small>v2.4.1</small></div>
+        </div>
+        <nav>
+          <a class="nav-item {% if current_page == 'overview' %}active{% endif %}" href="/">Overview</a>
+          <a class="nav-item {% if current_page == 'servers' %}active{% endif %}" href="/servers">Servers</a>
+          <a class="nav-item {% if current_page == 'metrics' %}active{% endif %}" href="/metrics">Metrics</a>
+          <a class="nav-item {% if current_page == 'alerts' %}active{% endif %}" href="/alerts">Alerts</a>
+          <a class="nav-item {% if current_page == 'logs' %}active{% endif %}" href="/logs">Logs</a>
+        </nav>
+        <section class="uptime-card">
+          <div>Fleet</div>
+          <strong id="fleet-total">0</strong>
+          <small>Tracked servers</small>
+        </section>
+      </aside>
+
+      <section class="dash-main">
+        <header class="top-status">
+          <div id="fleet-status-dot" class="status-dot"></div>
+          <span id="fleet-status-text">Loading...</span>
+          <div class="header-actions">
+            <button id="refresh-btn" type="button" class="btn-secondary">Refresh</button>
+            <form method="post" action="/sign-out">
+              <button type="submit" class="btn-secondary">Sign out</button>
+            </form>
+          </div>
+        </header>
+
+        <section class="page-content" id="page-content"></section>
+      </section>
+    </main>
+
+    <script src="/static/console.js"></script>
+  </body>
+</html>

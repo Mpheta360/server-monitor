@@ -20,6 +20,7 @@ def ingest_metrics(payload: AgentPayload, db = Depends(get_db)) -> IngestRespons
         )
     
     server, metric = crud.upsert_server_with_metric(db, payload, commit=False)
+    user_id = (payload.user_id or settings.monitor_default_user_id).strip() or None
     
     metric_checks = [
         ("cpu", metric.get('cpu_percent'), settings.alert_cpu_threshold),
@@ -48,6 +49,7 @@ def ingest_metrics(payload: AgentPayload, db = Depends(get_db)) -> IngestRespons
                 server_id=server.get('id'),
                 delivered=result.delivered,
                 suppressed=result.suppressed,
+                user_id=user_id,
                 commit=False,
             )
 
@@ -71,8 +73,67 @@ def ingest_metrics(payload: AgentPayload, db = Depends(get_db)) -> IngestRespons
                 server_id=server.get('id'),
                 delivered=result.delivered,
                 suppressed=result.suppressed,
+                user_id=user_id,
                 commit=False,
             )
 
-    return IngestResponse(server_id=server.get('id'), metric_id=metric.get('id'), status="ok")
+    if payload.nginx_apps:
+        checks = []
+        for app_check in payload.nginx_apps:
+            checks.append(
+                {
+                    "app_name": app_check.app_name,
+                    "check_url": app_check.check_url,
+                    "status_code": app_check.status_code,
+                    "response_time_ms": app_check.response_time_ms,
+                    "healthy": app_check.healthy,
+                    "error": app_check.error,
+                }
+            )
+        crud.create_nginx_app_checks(
+            db,
+            user_id=user_id,
+            server_id=server.get("id"),
+            checks=checks,
+        )
+        for app_check in payload.nginx_apps:
+            if app_check.healthy:
+                continue
+            alert_key = f"{server.get('hostname')}:nginx-app:{app_check.app_name}"
+            message = (
+                f"{server.get('hostname')}: nginx app {app_check.app_name} unhealthy "
+                f"(status={app_check.status_code}, error={app_check.error or 'n/a'})"
+            )
+            result = alerts.dispatch(
+                key=alert_key,
+                severity="critical",
+                message=message,
+            )
+            crud.create_alert_event(
+                db=db,
+                alert_key=alert_key,
+                severity="critical",
+                message=message,
+                source="ingest-nginx-app-check",
+                server_id=server.get("id"),
+                delivered=result.delivered,
+                suppressed=result.suppressed,
+                user_id=user_id,
+                commit=False,
+            )
 
+    crud.create_log_event(
+        db,
+        user_id=user_id,
+        level="info",
+        source="ingest",
+        message=f"Ingested metrics from {server.get('hostname')}",
+        server_id=server.get("id"),
+        context_json={
+            "cpu_percent": metric.get("cpu_percent"),
+            "memory_percent": metric.get("memory_percent"),
+            "disk_percent": metric.get("disk_percent"),
+        },
+    )
+
+    return IngestResponse(server_id=server.get('id'), metric_id=metric.get('id'), status="ok")

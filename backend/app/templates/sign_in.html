@@ -6,21 +6,30 @@
     <title>{{ app_name }} - Sign In</title>
     <link rel="stylesheet" href="/static/dashboard.css" />
   </head>
-  <body>
-    <main class="auth-page">
-      <section class="auth-card">
-        <h1>{{ app_name }}</h1>
-        <p>Sign in to continue to the dashboard.</p>
+  <body class="is-auth">
+    <main class="auth-shell">
+      <section class="auth-brand">
+        <div class="brand-mark">
+          <span class="brand-rail"></span>
+          <span class="brand-rail"></span>
+        </div>
+        <h1>SYSMON</h1>
+      </section>
+
+      <section class="auth-panel">
+        <h2>Sign in</h2>
+        <p>Access your monitoring dashboard</p>
         {% if error %}
         <div class="auth-error">{{ error }}</div>
         {% endif %}
         <form class="auth-form" method="post" action="/sign-in">
           <label for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="email" required />
+          <input id="email" name="email" type="email" autocomplete="email" placeholder="admin@system.io" required />
           <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required />
-          <button type="submit">Sign In</button>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="........" required />
+          <button type="submit" class="auth-submit">&gt; Authenticate</button>
         </form>
+        <div class="auth-foot">sys.auth.v2.4 - encrypted connection</div>
       </section>
     </main>
   </body>

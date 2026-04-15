@@ -8,9 +8,30 @@ This project is a starter monitoring platform for servers and systems.
 - Supabase Postgres-backed data model (SQLAlchemy)
 - Supabase Auth-backed mobile API protection (Bearer access token)
 - Lightweight Python agent to collect CPU, memory, disk, load, uptime, service status, and optional Nginx stats
-- Basic dashboard at `/` for live overview and server table
+- SYSMON-style dashboard at `/` with auth, KPI cards, fleet panel, and activity feed
 - Threshold-based critical state detection
 - Optional email, Telegram, and webhook alert delivery with cooldown
+- Stable host identity using `agent_key` for multi-server fleets
+- Aggregated dashboard analytics endpoint for efficient real-time polling
+
+## Recommended Architecture (Multi-Server Production)
+
+1. Central monitor API
+- Deploy backend behind Caddy/Nginx with TLS.
+- Keep API stateless and persist telemetry in Supabase Postgres.
+
+2. Distributed agents
+- Run one agent per VM/server.
+- Set unique `MONITOR_AGENT_KEY` per host.
+- Push metrics on fixed interval to `/api/v1/ingest`.
+
+3. Fleet dashboard read path
+- Poll `GET /api/v1/dashboard/analytics` every 10s.
+- Endpoint returns KPIs, trend series, server list, and recent activity in one response.
+
+4. Alert path
+- Threshold and service checks execute during ingest.
+- Alerts are persisted and optionally delivered (webhook/email/Telegram) with cooldown suppression.
 
 ## Project Structure
 
@@ -32,6 +53,8 @@ Optional local-only DB fallback:
 docker compose up -d
 # then set DATABASE_URL in backend/.env
 ```
+
+Then run `backend/app/schema.sql` in Supabase SQL editor (safe to re-run; includes `IF NOT EXISTS` and alter guards).
 
 ## 2) Run Backend
 
@@ -65,6 +88,10 @@ Agent Nginx options (in `agent/.env`):
 - `MONITOR_NGINX_ENABLED=true`
 - `MONITOR_NGINX_STATUS_URL=http://127.0.0.1:8080/nginx_status`
 - `MONITOR_NGINX_VERIFY_TLS=true`
+- `MONITOR_AGENT_KEY=web-01-prod`
+- `MONITOR_DISPLAY_NAME=web-01-prod`
+- `MONITOR_REGION=us-east-1`
+- `MONITOR_HEALTHCHECK_URL=http://127.0.0.1:8000/health`
 
 ## Authentication
 
@@ -72,7 +99,7 @@ If `INGEST_API_TOKEN` is set in `backend/.env`, the agent must send the same tok
 
 Mobile API authentication uses Supabase access tokens. The backend verifies bearer tokens against Supabase Auth at `/auth/v1/user`.
 
-Admin web/dashboard and server API endpoints require HTTP Basic Auth (`ADMIN_USERNAME` / `ADMIN_PASSWORD`).
+Admin web/dashboard uses Supabase email/password at `/sign-in` and stores a secure dashboard session cookie.
 
 ## Alerts
 
@@ -116,6 +143,7 @@ All endpoints below require `Authorization: Bearer <supabase_access_token>`.
 Server API endpoint for Nginx timeline:
 
 - `GET /api/v1/servers/{server_id}/nginx-metrics?minutes=180`
+- `GET /api/v1/dashboard/analytics?window_minutes=60&bucket_minutes=5&server_limit=150&alerts_limit=20`
 
 ## Nginx Monitoring Setup
 
@@ -265,15 +293,20 @@ async function loadBootstrap() {
 ```json
 {
   "server": {
+    "agent_key": "web-01-prod",
     "hostname": "web-01",
+    "display_name": "web-01-prod",
     "ip_address": "10.0.0.21",
     "environment": "production",
+    "region": "us-east-1",
     "tags": ["web", "nginx"]
   },
   "metrics": {
     "cpu_percent": 43.2,
     "memory_percent": 67.5,
     "disk_percent": 54.1,
+    "network_io_mbps": 284.4,
+    "response_time_ms": 48.0,
     "load_1m": 1.3,
     "load_5m": 0.8,
     "load_15m": 0.5,

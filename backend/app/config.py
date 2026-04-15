@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     supabase_auth_timeout_seconds: int = 8
     ingest_api_token: str = ""
+    monitor_default_user_id: str = ""
     require_admin_auth: bool = True
     admin_username: str = ""
     admin_password: str = ""

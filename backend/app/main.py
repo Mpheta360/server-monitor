@@ -158,8 +158,64 @@ def dashboard(request: Request):
 
     return templates.TemplateResponse(
         request=request,
-        name="dashboard.html",
-        context={"app_name": settings.app_name},
+        name="console.html",
+        context={"app_name": settings.app_name, "current_page": "overview"},
+    )
+
+
+@app.get("/servers", response_class=HTMLResponse)
+def servers_page(request: Request):
+    if settings.require_admin_auth:
+        try:
+            verify_admin_basic_auth(request_obj=request, authorization=request.headers.get("authorization"))
+        except HTTPException:
+            return RedirectResponse(url="/sign-in", status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name="console.html",
+        context={"app_name": settings.app_name, "current_page": "servers"},
+    )
+
+
+@app.get("/metrics", response_class=HTMLResponse)
+def metrics_page(request: Request):
+    if settings.require_admin_auth:
+        try:
+            verify_admin_basic_auth(request_obj=request, authorization=request.headers.get("authorization"))
+        except HTTPException:
+            return RedirectResponse(url="/sign-in", status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name="console.html",
+        context={"app_name": settings.app_name, "current_page": "metrics"},
+    )
+
+
+@app.get("/alerts", response_class=HTMLResponse)
+def alerts_page(request: Request):
+    if settings.require_admin_auth:
+        try:
+            verify_admin_basic_auth(request_obj=request, authorization=request.headers.get("authorization"))
+        except HTTPException:
+            return RedirectResponse(url="/sign-in", status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name="console.html",
+        context={"app_name": settings.app_name, "current_page": "alerts"},
+    )
+
+
+@app.get("/logs", response_class=HTMLResponse)
+def logs_page(request: Request):
+    if settings.require_admin_auth:
+        try:
+            verify_admin_basic_auth(request_obj=request, authorization=request.headers.get("authorization"))
+        except HTTPException:
+            return RedirectResponse(url="/sign-in", status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name="console.html",
+        context={"app_name": settings.app_name, "current_page": "logs"},
     )
 
 

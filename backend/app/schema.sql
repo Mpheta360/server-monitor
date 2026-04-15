@@ -16,15 +16,32 @@ CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
 CREATE TABLE IF NOT EXISTS servers (
     id SERIAL PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    agent_key VARCHAR(255) NOT NULL,
     hostname VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255),
     ip_address VARCHAR(64) DEFAULT '',
     environment VARCHAR(64) DEFAULT 'production',
+    region VARCHAR(64),
     tags TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_user_hostname ON servers(user_id, hostname);
+ALTER TABLE servers ADD COLUMN IF NOT EXISTS agent_key VARCHAR(255);
+ALTER TABLE servers ALTER COLUMN agent_key SET DEFAULT '';
+UPDATE servers
+SET agent_key = CONCAT(
+    COALESCE(NULLIF(hostname, ''), 'server'),
+    ':',
+    COALESCE(NULLIF(environment, ''), 'production')
+)
+WHERE COALESCE(agent_key, '') = '';
+ALTER TABLE servers ALTER COLUMN agent_key SET NOT NULL;
+ALTER TABLE servers ADD COLUMN IF NOT EXISTS display_name VARCHAR(255);
+ALTER TABLE servers ADD COLUMN IF NOT EXISTS region VARCHAR(64);
+
+DROP INDEX IF EXISTS idx_servers_user_hostname;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_user_agent_key ON servers(user_id, agent_key);
 CREATE INDEX IF NOT EXISTS idx_servers_user_id ON servers(user_id);
 
 -- Create metrics table
@@ -35,12 +52,17 @@ CREATE TABLE IF NOT EXISTS metrics (
     cpu_percent FLOAT NOT NULL,
     memory_percent FLOAT NOT NULL,
     disk_percent FLOAT NOT NULL,
+    network_io_mbps FLOAT DEFAULT 0.0,
+    response_time_ms FLOAT DEFAULT 0.0,
     load_1m FLOAT DEFAULT 0.0,
     load_5m FLOAT DEFAULT 0.0,
     load_15m FLOAT DEFAULT 0.0,
     uptime_seconds INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS network_io_mbps FLOAT DEFAULT 0.0;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS response_time_ms FLOAT DEFAULT 0.0;
 
 CREATE INDEX IF NOT EXISTS idx_metrics_server_id ON metrics(server_id);
 CREATE INDEX IF NOT EXISTS idx_metrics_user_id ON metrics(user_id);
@@ -99,6 +121,60 @@ CREATE INDEX IF NOT EXISTS idx_alert_events_user_id ON alert_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_alert_events_alert_key ON alert_events(alert_key);
 CREATE INDEX IF NOT EXISTS idx_alert_events_created_at ON alert_events(created_at);
 
+-- Create nginx_app_checks table
+CREATE TABLE IF NOT EXISTS nginx_app_checks (
+    id SERIAL PRIMARY KEY,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    app_name VARCHAR(255) NOT NULL,
+    check_url TEXT NOT NULL,
+    status_code INTEGER,
+    response_time_ms FLOAT DEFAULT 0.0,
+    healthy BOOLEAN DEFAULT FALSE,
+    error TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_nginx_app_checks_server_id ON nginx_app_checks(server_id);
+CREATE INDEX IF NOT EXISTS idx_nginx_app_checks_user_id ON nginx_app_checks(user_id);
+CREATE INDEX IF NOT EXISTS idx_nginx_app_checks_created_at ON nginx_app_checks(created_at);
+CREATE INDEX IF NOT EXISTS idx_nginx_app_checks_healthy ON nginx_app_checks(healthy);
+
+-- Create log_events table
+CREATE TABLE IF NOT EXISTS log_events (
+    id SERIAL PRIMARY KEY,
+    server_id INTEGER REFERENCES servers(id) ON DELETE SET NULL,
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    level VARCHAR(32) DEFAULT 'info',
+    source VARCHAR(64) DEFAULT 'system',
+    message TEXT NOT NULL,
+    context_json JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_events_server_id ON log_events(server_id);
+CREATE INDEX IF NOT EXISTS idx_log_events_user_id ON log_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_log_events_level ON log_events(level);
+CREATE INDEX IF NOT EXISTS idx_log_events_created_at ON log_events(created_at);
+
+-- Create issue_reports table
+CREATE TABLE IF NOT EXISTS issue_reports (
+    id SERIAL PRIMARY KEY,
+    server_id INTEGER REFERENCES servers(id) ON DELETE SET NULL,
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    nginx_app_name VARCHAR(255),
+    severity VARCHAR(32) DEFAULT 'warning',
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    status VARCHAR(32) DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_reports_server_id ON issue_reports(server_id);
+CREATE INDEX IF NOT EXISTS idx_issue_reports_user_id ON issue_reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_issue_reports_status ON issue_reports(status);
+CREATE INDEX IF NOT EXISTS idx_issue_reports_created_at ON issue_reports(created_at);
+
 -- Enable RLS (Row Level Security)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE servers ENABLE ROW LEVEL SECURITY;
@@ -106,6 +182,9 @@ ALTER TABLE metrics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_statuses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nginx_metrics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alert_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE nginx_app_checks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE log_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE issue_reports ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for profiles
 DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
@@ -163,6 +242,33 @@ CREATE POLICY "Users can view own alerts" ON alert_events FOR SELECT USING (auth
 
 DROP POLICY IF EXISTS "Users can update own alerts" ON alert_events;
 CREATE POLICY "Users can update own alerts" ON alert_events FOR UPDATE USING (auth.uid() = user_id);
+
+-- RLS Policies for nginx_app_checks
+DROP POLICY IF EXISTS "Users can view own nginx app checks" ON nginx_app_checks;
+CREATE POLICY "Users can view own nginx app checks" ON nginx_app_checks FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own nginx app checks" ON nginx_app_checks;
+CREATE POLICY "Users can insert own nginx app checks" ON nginx_app_checks FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own nginx app checks" ON nginx_app_checks;
+CREATE POLICY "Users can delete own nginx app checks" ON nginx_app_checks FOR DELETE USING (auth.uid() = user_id);
+
+-- RLS Policies for log_events
+DROP POLICY IF EXISTS "Users can view own log events" ON log_events;
+CREATE POLICY "Users can view own log events" ON log_events FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own log events" ON log_events;
+CREATE POLICY "Users can insert own log events" ON log_events FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- RLS Policies for issue_reports
+DROP POLICY IF EXISTS "Users can view own issue reports" ON issue_reports;
+CREATE POLICY "Users can view own issue reports" ON issue_reports FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own issue reports" ON issue_reports;
+CREATE POLICY "Users can insert own issue reports" ON issue_reports FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own issue reports" ON issue_reports;
+CREATE POLICY "Users can update own issue reports" ON issue_reports FOR UPDATE USING (auth.uid() = user_id);
 
 -- Create function to handle new user profile creation
 DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
